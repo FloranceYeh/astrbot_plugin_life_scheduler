@@ -1,4 +1,3 @@
-import datetime
 import re
 
 from astrbot.api import logger
@@ -41,7 +40,7 @@ class LifeSchedulerPlugin(Star):
         获取生活上下文数据（供 DailySharing 插件调用）
         返回格式符合 DailySharing 的 _parse_life_data 方法要求
         """
-        today = datetime.datetime.now()
+        today = resolve_business_now(self.config.get("schedule_time"))
         data = self.data_mgr.get(today)
         
         if not data:
