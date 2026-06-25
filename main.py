@@ -64,9 +64,9 @@ class LifeSchedulerPlugin(Star):
             "timeline": [],  # 如果有 timeline 数据可以在这里添加
         }
 
-    @filter.on_llm_request()
-    async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
-        """System Prompt 注入"""
+    @filter.llm_tool()
+    async def llm_life_show(self, event: AstrMessageEvent,):
+        """查看今日的穿搭和日程安排"""
         business_now = resolve_business_now(self.config.get("schedule_time"))
         today = business_now
         umo = event.unified_msg_origin
@@ -85,8 +85,7 @@ class LifeSchedulerPlugin(Star):
             business_now=business_now,
         )
 
-        req.system_prompt = (req.system_prompt or "") + inject_text
-        logger.debug(f"[LLM] 添加的内在状态注入：{inject_text}")
+        return inject_text
 
     @filter.command("查看日程", alias={"life show"})
     async def life_show(self, event: AstrMessageEvent):
