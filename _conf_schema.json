@@ -33,6 +33,31 @@
     "_special": "select_provider",
     "default": ""
   },
+  "life_context_injection_mode": {
+    "description": "生活状态注入策略",
+    "hint": "auto：仅在用户问题涉及日程/穿搭/当前状态时注入短状态，完整日程由 LLM 工具按需查询；compact：每次只注入短状态；full：每次注入完整日程（旧行为）；off：关闭注入。",
+    "type": "string",
+    "options": ["auto", "compact", "full", "off"],
+    "default": "auto"
+  },
+  "life_context_injection_target": {
+    "description": "生活状态注入位置",
+    "hint": "默认追加到用户消息尾部，避免修改 system_prompt，提升系统提示词缓存稳定性；如需旧行为可选 system_prompt。",
+    "type": "string",
+    "options": ["user_prompt", "system_prompt"],
+    "default": "user_prompt"
+  },
+  "life_context_max_schedule_chars": {
+    "description": "注入完整日程时的最大字符数",
+    "hint": "只影响注入到 LLM 的完整日程长度，不影响“查看日程”和外部插件读取的完整数据。",
+    "type": "int",
+    "slider": {
+      "min": 200,
+      "max": 5000,
+      "step": 100
+    },
+    "default": 1200
+  },
   "pool": {
     "description": "创意池",
     "hint": "每次生成日程时，各个池会随机选择一个来并入日程生成提示词",

@@ -42,7 +42,12 @@ _install_astrbot_stubs()
 
 from core.data import ScheduleDataManager  # noqa: E402
 from core.generator import ScheduleContext, SchedulerGenerator  # noqa: E402
-from core.utils import build_character_state_injection, select_current_activity  # noqa: E402
+from core.utils import (  # noqa: E402
+    build_character_state_injection,
+    build_life_schedule_detail,
+    life_context_injection_policy,
+    select_current_activity,
+)
 
 
 class _ConversationManager:
@@ -380,6 +385,71 @@ class SchedulerBehaviorTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("当前状态: 未解析到具体时间点", inject_text)
         self.assertIn("今日日程: 上午整理房间，下午在家看书。", inject_text)
+
+    def test_life_context_injection_policy_modes(self):
+        self.assertEqual(
+            life_context_injection_policy("随便聊聊", "off"),
+            (False, False),
+        )
+        self.assertEqual(
+            life_context_injection_policy("随便聊聊", "compact"),
+            (True, False),
+        )
+        self.assertEqual(life_context_injection_policy("随便聊聊", "full"), (True, True))
+        self.assertEqual(
+            life_context_injection_policy("随便聊聊", "auto"),
+            (False, False),
+        )
+        self.assertEqual(
+            life_context_injection_policy("你现在在做什么", "auto"),
+            (True, False),
+        )
+        self.assertEqual(
+            life_context_injection_policy("今天有什么安排", "auto"),
+            (True, False),
+        )
+
+    def test_character_state_compact_injection_skips_full_schedule(self):
+        schedule = "- 09:30 出门去咖啡店看书\n- 14:00 去逛街\n"
+        inject_text = build_character_state_injection(
+            "黑丝和吊带裙",
+            schedule,
+            now=datetime.datetime(2026, 5, 24, 9, 38),
+            include_schedule=False,
+        )
+
+        self.assertIn("当前状态: 09:30 出门去咖啡店看书", inject_text)
+        self.assertNotIn("今日日程:", inject_text)
+        self.assertIn("get_life_schedule_detail", inject_text)
+
+    def test_character_state_full_schedule_can_be_clipped(self):
+        schedule = "09:00 " + ("看书" * 20)
+        inject_text = build_character_state_injection(
+            "居家裙",
+            schedule,
+            now=datetime.datetime(2026, 5, 24, 10, 0),
+            include_schedule=True,
+            max_schedule_chars=12,
+        )
+
+        self.assertIn("今日日程: 09:00 看书看书看书...", inject_text)
+        self.assertIn("已截断", inject_text)
+
+    def test_life_schedule_detail_includes_full_schedule(self):
+        schedule = "- 09:30 出门去咖啡店看书\n- 14:00 去逛街\n"
+        detail = build_life_schedule_detail(
+            "2026-05-24",
+            "甜酷混搭风",
+            "黑丝和吊带裙",
+            schedule,
+            now=datetime.datetime(2026, 5, 24, 14, 30),
+            business_now=datetime.datetime(2026, 5, 24, 14, 30),
+        )
+
+        self.assertIn("日期: 2026-05-24", detail)
+        self.assertIn("穿搭风格: 甜酷混搭风", detail)
+        self.assertIn("当前状态: 14:00 去逛街", detail)
+        self.assertIn("详细日程:\n" + schedule.strip(), detail)
 
     async def test_manual_extra_repairs_when_output_ignores_requirement(self):
         generator, provider = self._generator(

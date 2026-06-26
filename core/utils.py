@@ -1,6 +1,16 @@
 import datetime
 import re
 
+LIFE_CONTEXT_INJECTION_MODES = {"off", "auto", "compact", "full"}
+
+_LIFE_CONTEXT_RE = re.compile(
+    r"(日程|行程|安排|计划|现在|当前|正在|在干嘛|做什么|干什么|"
+    r"去哪|哪里|在哪|位置|场景|状态|生活|穿|穿着|穿搭|衣服|服装|鞋|袜|"
+    r"自拍|照片|拍照|生图|画你|画她|你在|你今天|today|schedule|plan|"
+    r"outfit|wear|wearing|doing|where)",
+    re.IGNORECASE,
+)
+
 
 def time_desc(h=None):
     """返回中文时段：深夜/清晨/上午/中午/下午/晚上"""
@@ -20,6 +30,35 @@ def time_desc(h=None):
         if h < 22
         else "深夜"
     )
+
+
+def normalize_life_context_injection_mode(mode: str | None) -> str:
+    mode = str(mode or "auto").strip().lower()
+    return mode if mode in LIFE_CONTEXT_INJECTION_MODES else "auto"
+
+
+def life_context_injection_policy(text: str, mode: str | None) -> tuple[bool, bool]:
+    """Return (should_inject, include_full_schedule)."""
+    mode = normalize_life_context_injection_mode(mode)
+    if mode == "off":
+        return False, False
+    if mode == "full":
+        return True, True
+    if mode == "compact":
+        return True, False
+
+    text = str(text or "")
+    if not _LIFE_CONTEXT_RE.search(text):
+        return False, False
+    return True, False
+
+
+def _clip_text(text: str, max_chars: int | None) -> str:
+    text = str(text or "").strip()
+    if not max_chars or max_chars <= 0 or len(text) <= max_chars:
+        return text
+    return text[:max_chars].rstrip() + "...（已截断，可用“查看日程”获取完整日程）"
+
 
 def parse_schedule_time(schedule_time: str | None) -> tuple[int, int]:
     schedule_time = str(schedule_time or "00:00")
@@ -100,6 +139,8 @@ def build_character_state_injection(
     *,
     now: datetime.datetime | None = None,
     business_now: datetime.datetime | None = None,
+    include_schedule: bool = True,
+    max_schedule_chars: int | None = None,
 ) -> str:
     """Build the system prompt fragment injected into normal LLM requests."""
     now = now or datetime.datetime.now()
@@ -109,17 +150,81 @@ def build_character_state_injection(
         now=now,
         wrap_previous_day=business_now.date() < now.date(),
     )
-    current_state = current_activity or "未解析到具体时间点，请按今日日程整体保持一致"
+    if current_activity:
+        current_state = current_activity
+    elif include_schedule:
+        current_state = "未解析到具体时间点，请按今日日程整体保持一致"
+    else:
+        current_state = "今日已生成日程，但未解析到当前时间点；不要主动编造具体状态"
 
-    return f"""
-<character_state>
-时间: {time_desc(now.hour)}
-穿着: {outfit}
-当前状态: {current_state}
-今日日程: {schedule}
-</character_state>
-<state_following_rules>
-- 当用户问到正在做什么、今天安排、所在场景、穿着或生活状态时，必须以 <character_state> 为准。
-- 不得编造与当前状态或今日日程冲突的上课、上班、外出、睡觉等状态。
-- 与用户问题无关时无需主动提及这些状态。
-</state_following_rules>"""
+    lines = [
+        "",
+        "<character_state>",
+        f"时间: {time_desc(now.hour)}",
+        f"穿着: {str(outfit or '').strip()}",
+        f"当前状态: {current_state}",
+    ]
+    if include_schedule:
+        lines.append(f"今日日程: {_clip_text(schedule, max_schedule_chars)}")
+    lines.extend(
+        [
+            "</character_state>",
+            "<state_following_rules>",
+        ]
+    )
+    if include_schedule:
+        lines.extend(
+            [
+                "- 当用户问到正在做什么、今天安排、所在场景、穿着或生活状态时，必须以 <character_state> 为准。",
+                "- 不得编造与当前状态或今日日程冲突的上课、上班、外出、睡觉等状态。",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "- 当用户问到正在做什么、所在场景、穿着或生活状态时，必须以 <character_state> 为准。",
+                "- 不得编造与当前状态冲突的上课、上班、外出、睡觉等状态。",
+                "- 若用户需要完整日程，优先调用 get_life_schedule_detail 工具查询；无法调用工具时再引导其使用“查看日程”命令。",
+            ]
+        )
+    lines.extend(
+        [
+            "- 与用户问题无关时无需主动提及这些状态。",
+            "</state_following_rules>",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def build_life_schedule_detail(
+    date_str: str,
+    outfit_style: str,
+    outfit: str,
+    schedule: str,
+    *,
+    now: datetime.datetime | None = None,
+    business_now: datetime.datetime | None = None,
+) -> str:
+    """Build detailed life schedule text for LLM tool responses."""
+    now = now or datetime.datetime.now()
+    business_now = business_now or now
+    current_activity = select_current_activity(
+        schedule,
+        now=now,
+        wrap_previous_day=business_now.date() < now.date(),
+    )
+    current_state = current_activity or "未解析到具体时间点，请按详细日程整体保持一致"
+
+    return "\n".join(
+        [
+            "<life_schedule_detail>",
+            f"日期: {date_str}",
+            f"时间: {time_desc(now.hour)}",
+            f"穿搭风格: {str(outfit_style or '').strip() or '未指定'}",
+            f"穿着: {str(outfit or '').strip() or '未指定'}",
+            f"当前状态: {current_state}",
+            "详细日程:",
+            str(schedule or "").strip() or "无",
+            "</life_schedule_detail>",
+        ]
+    )

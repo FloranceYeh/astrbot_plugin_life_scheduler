@@ -6,7 +6,7 @@
 
 - **日程生成**: 结合日期、节日、历史日程和近期对话，生成拟人化日程
 - **穿搭推荐**: 根据创意池随机选取风格，生成每日穿搭描述
-- **System Prompt 注入**: 自动将当日状态注入 LLM 上下文，Bot 会"记得"自己今天穿了什么、在做什么
+- **按需状态注入**: 默认只在相关对话中注入生活状态，并追加到用户消息尾部，避免每轮改写 System Prompt
 - **当前状态提取**: 对含时间点的日程自动提取当前或最近活动，减少对话中说出与日程冲突的状态
 - **懒加载**: 未到生成时间时，首次对话自动触发生成
 - **补充要求**: 重写日程时可附加自定义要求，让生成更符合预期
@@ -35,6 +35,9 @@ pip install holidays APScheduler
 | `schedule_time` | string | `07:00` | 每日自动生成日程的时间 |
 | `reference_history_days` | int | `3` | 生成时参考的历史日程天数 (1-7) |
 | `reference_recent_count` | int | `10` | 生成时参考的近期会话数量，0 表示不参考 |
+| `life_context_injection_mode` | string | `auto` | 生活状态注入策略：`auto`、`compact`、`full`、`off` |
+| `life_context_injection_target` | string | `user_prompt` | 注入位置：默认追加到用户消息尾部；可设为 `system_prompt` 恢复旧行为 |
+| `life_context_max_schedule_chars` | int | `1200` | `full` 模式或旧式完整日程注入时的最大日程字符数 |
 | `pool` | object | - | 创意池，每次生成随机选取 |
 | `prompt_template` | text | - | LLM 生成日程的 Prompt 模板 |
 
@@ -66,7 +69,11 @@ pip install holidays APScheduler
 
 ## 注入机制
 
-插件在 LLM 请求时自动注入当前状态：
+插件默认使用 `auto` 策略：用户问题涉及日程、穿搭、当前状态、自拍/生图等生活状态时才注入短状态；普通闲聊不注入，也不会触发懒生成。完整日程不再常驻上下文，LLM 需要时可调用 `get_life_schedule_detail` 工具查询。
+
+默认注入到用户消息尾部，保持原始 System Prompt 稳定，利于模型端 prompt cache。若需要旧行为，可把 `life_context_injection_target` 改为 `system_prompt`，或把 `life_context_injection_mode` 改为 `full`。
+
+相关对话中默认只注入类似：
 
 ```xml
 <character_state>
@@ -76,6 +83,10 @@ pip install holidays APScheduler
 今日日程: 上午整理房间，下午去咖啡厅看书...
 </character_state>
 ```
+
+### LLM 工具
+
+插件注册了 `get_life_schedule_detail` 工具，供 LLM 在用户询问完整日程、今天安排、穿搭或当前生活状态时按需查询。工具返回当前业务日的日期、穿搭风格、穿着、当前状态和完整详细日程。
 
 ## 外部插件调用
 
