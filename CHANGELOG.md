@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+- 优化：生活状态默认改为按需注入，并默认追加到用户消息尾部，避免每轮把完整日程写入 `system_prompt` 破坏缓存。
+- 新增：注册 `get_life_schedule_detail` LLM 工具，供模型按需查询当前业务日的详细日程、穿搭和当前状态。
+- 新增：支持 `life_context_injection_mode`、`life_context_injection_target` 和 `life_context_max_schedule_chars` 配置。
+
 ## v2.4.1 - 2026-05-24
 - 修复：手动 `重写日程` 的补充要求不再被随机穿搭风格覆盖，并会校验具体穿搭和活动是否落实。
 - 修复：日常对话注入当前或最近日程活动，减少回答与当天日程冲突。

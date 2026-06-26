@@ -3,6 +3,7 @@ import re
 from astrbot.api import logger
 from astrbot.api.all import Context, Star
 from astrbot.api.event import AstrMessageEvent, filter
+from astrbot.core.agent.message import TextPart
 from astrbot.core.config.astrbot_config import AstrBotConfig
 from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.star.star_tools import StarTools
@@ -10,7 +11,12 @@ from astrbot.core.star.star_tools import StarTools
 from .core.data import ScheduleDataManager
 from .core.generator import SchedulerGenerator
 from .core.schedule import LifeScheduler
-from .core.utils import build_character_state_injection, resolve_business_now
+from .core.utils import (
+    build_character_state_injection,
+    build_life_schedule_detail,
+    life_context_injection_policy,
+    resolve_business_now,
+)
 
 
 class LifeSchedulerPlugin(Star):
@@ -64,9 +70,50 @@ class LifeSchedulerPlugin(Star):
             "timeline": [],  # 如果有 timeline 数据可以在这里添加
         }
 
-    @filter.llm_tool()
-    async def llm_life_show(self, event: AstrMessageEvent,):
-        """查看今日的穿搭和日程安排"""
+    @filter.llm_tool(name="get_life_schedule_detail")
+    async def get_life_schedule_detail(self, event: AstrMessageEvent):
+        """
+        查询当前业务日的详细生活日程、穿搭和当前状态。用户询问今天安排、完整日程、穿搭或当前生活状态时调用。
+
+        Returns:
+            string: 当前业务日的详细生活日程、穿搭和当前状态。
+        """
+        business_now = resolve_business_now(self.config.get("schedule_time"))
+        today = business_now
+        data = self.data_mgr.get(today)
+        if not data:
+            try:
+                data = await self.generator.generate_schedule(
+                    today,
+                    event.unified_msg_origin,
+                )
+            except RuntimeError:
+                return "日程正在生成中，暂时无法查询详细日程。"
+
+        if not data or data.status == "failed":
+            return "今日暂无可用日程。"
+
+        return build_life_schedule_detail(
+            today.strftime("%Y-%m-%d"),
+            data.outfit_style,
+            data.outfit,
+            data.schedule,
+            business_now=business_now,
+        )
+
+    @filter.on_llm_request()
+    async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
+        """按需注入生活状态，避免每轮把完整日程塞进 system prompt。"""
+        mode = self.config.get("life_context_injection_mode", "auto")
+        request_text = self._collect_request_text(req)
+        should_inject, include_schedule = life_context_injection_policy(
+            request_text,
+            mode,
+        )
+        if not should_inject:
+            logger.debug("[LLM] 跳过生活状态注入：当前请求与日程/状态无关")
+            return
+
         business_now = resolve_business_now(self.config.get("schedule_time"))
         today = business_now
         umo = event.unified_msg_origin
@@ -83,9 +130,53 @@ class LifeSchedulerPlugin(Star):
             data.outfit,
             data.schedule,
             business_now=business_now,
+            include_schedule=include_schedule,
+            max_schedule_chars=self._config_int(
+                "life_context_max_schedule_chars",
+                1200,
+            ),
         )
 
-        return inject_text
+        if (
+            self.config.get("life_context_injection_target", "user_prompt")
+            == "system_prompt"
+        ):
+            req.system_prompt = (req.system_prompt or "") + inject_text
+        else:
+            req.extra_user_content_parts.append(
+                TextPart(text=inject_text).mark_as_temp()
+            )
+        logger.debug(
+            "[LLM] 添加生活状态注入：mode=%s include_schedule=%s chars=%d",
+            mode,
+            include_schedule,
+            len(inject_text),
+        )
+
+    @staticmethod
+    def _collect_request_text(req: ProviderRequest) -> str:
+        if req.prompt:
+            return str(req.prompt)
+        for ctx in reversed(req.contexts or []):
+            if ctx.get("role") != "user":
+                continue
+            content = ctx.get("content")
+            if isinstance(content, str):
+                return content
+            elif isinstance(content, list):
+                parts: list[str] = []
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        parts.append(str(item.get("text", "")))
+                if parts:
+                    return "\n".join(part for part in parts if part)
+        return ""
+
+    def _config_int(self, key: str, default: int) -> int:
+        try:
+            return int(self.config.get(key, default))
+        except (TypeError, ValueError):
+            return default
 
     @filter.command("查看日程", alias={"life show"})
     async def life_show(self, event: AstrMessageEvent):
