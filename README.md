@@ -104,8 +104,5 @@ life_data = await life_scheduler_plugin.get_life_context()
 2. 需安装 `holidays` 库才能识别中国节日
 3. 重写日程会覆盖当日已有数据
 
-
-
-本插件开发QQ群：215532038
-
-<img width="1284" height="2289" alt="qrcode_1767584668806" src="https://github.com/user-attachments/assets/113ccf60-044a-47f3-ac8f-432ae05f89ee" />
+原项目
+[astrbot_plugin_life_scheduler](https://github.com/muyouzhi6/astrbot_plugin_life_scheduler)
