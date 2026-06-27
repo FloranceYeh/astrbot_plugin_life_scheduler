@@ -7,7 +7,7 @@ _LIFE_CONTEXT_RE = re.compile(
     r"(日程|行程|安排|计划|现在|当前|正在|在干嘛|做什么|干什么|"
     r"去哪|哪里|在哪|位置|场景|状态|生活|穿|穿着|穿搭|衣服|服装|鞋|袜|"
     r"自拍|照片|拍照|生图|画你|画她|你在|你今天|today|schedule|plan|"
-    r"outfit|wear|wearing|doing|where)",
+    r"outfit|wear|wearing|doing|where|ootd)",
     re.IGNORECASE,
 )
 
